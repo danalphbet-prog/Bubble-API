@@ -1,0 +1,16 @@
+{
+  "name": "bubble-api-mvp",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Bubble API MVP - Bedrock to Bedrock shared bubble state over HTTP polling",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "check": "node --check src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
