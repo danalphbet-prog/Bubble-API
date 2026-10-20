@@ -37,6 +37,14 @@ const sessions = new Map();
 const bubblePlayers = new Map();
 const rateBuckets = new Map();
 let globalTick = 0;
+// Alfabeto compartilhado (v1): os dois add-ons possuem a mesma tabela.
+const ANIMS = [
+  'idle','walk','sprint','sneak','jump','fall','fly','swim',
+  'attack','break','place','glide','climb','use','hurt','dead',
+  'ride','sleep','crawl','shield','bow','eat','teleport','other'
+];
+const FLAG_SPRINT=1, FLAG_SNEAK=2, FLAG_JUMP=4, FLAG_GROUND=8;
+const FLAG_FLY=16, FLAG_SWIM=32, FLAG_ATTACK=64, FLAG_BREAK=128, FLAG_PLACE=256;
 
 const bubbles = new Map([
   ['n25', {
@@ -182,6 +190,38 @@ function validatePlayerState(bubble, body) {
   if (x < ox || x > ox+sx || y < oy || y > oy+sy || z < oz || z > oz+sz) return 'player.position is outside Bubble bounds.';
   return null;
 }
+function validateCompact(bubble, body) {
+  if (body?.v !== 1 || !body.s || typeof body.s !== 'object' || Array.isArray(body.s)) return 'Expected {v:1,s:{...}}.';
+  const s=body.s;
+  if (typeof s.i !== 'string' || !s.i || s.i.length>128) return 's.i must be an ID up to 128 chars.';
+  if (s.n != null && (typeof s.n!=='string'||s.n.length>64)) return 's.n must be a name up to 64 chars.';
+  if (!Array.isArray(s.p)||s.p.length!==3||!s.p.every(isFiniteNum)) return 's.p must be [x,y,z].';
+  if (!Array.isArray(s.r)||s.r.length!==2||!s.r.every(isFiniteNum)) return 's.r must be [yaw,pitch].';
+  if (!Number.isInteger(s.a)||s.a<0||s.a>=ANIMS.length) return 's.a must be an animation code 0..23.';
+  if (!Number.isInteger(s.f)||s.f<0||s.f>511) return 's.f must be a flag bitmask 0..511.';
+  if (!Number.isInteger(s.d)||s.d<0||s.d>255) return 's.d must be a dimension code 0..255.';
+  if (!Number.isSafeInteger(s.q)||s.q<0) return 's.q must be a nonnegative sequence.';
+  const [x,y,z]=s.p,[ox,oy,oz]=bubble.bounds.origin,[sx,sy,sz]=bubble.bounds.size;
+  if(x<ox||x>ox+sx||y<oy||y>oy+sy||z<oz||z>oz+sz) return 's.p outside Bubble bounds.';
+  return null;
+}
+function flagsFromBits(f) {
+  return {sprinting:!!(f&FLAG_SPRINT),sneaking:!!(f&FLAG_SNEAK),
+    jumping:!!(f&FLAG_JUMP),grounded:!!(f&FLAG_GROUND),
+    flying:!!(f&FLAG_FLY),swimming:!!(f&FLAG_SWIM),
+    attacking:!!(f&FLAG_ATTACK),breaking:!!(f&FLAG_BREAK),placing:!!(f&FLAG_PLACE)};
+}
+function bitsFromFlags(f={}) {
+  return (f.sprinting?FLAG_SPRINT:0)|(f.sneaking?FLAG_SNEAK:0)|
+    (f.jumping?FLAG_JUMP:0)|(f.grounded!==false?FLAG_GROUND:0)|
+    (f.flying?FLAG_FLY:0)|(f.swimming?FLAG_SWIM:0)|
+    (f.attacking?FLAG_ATTACK:0)|(f.breaking?FLAG_BREAK:0)|(f.placing?FLAG_PLACE:0);
+}
+function compactRecord(p) {
+  const a=Number.isInteger(p.anim_id)?p.anim_id:Math.max(0,ANIMS.indexOf(p.animation));
+  return {i:p.player_id,p:p.position,r:[p.rotation.yaw,p.rotation.pitch],
+    a,f:bitsFromFlags(p.flags),d:p.dimension_code??3,q:p.sequence??p.revision};
+}
 function distanceSq(a,b) { const x=a[0]-b[0], y=a[1]-b[1], z=a[2]-b[2]; return x*x+y*y+z*z; }
 function storeForBubble(id) {
   let m = bubblePlayers.get(id);
@@ -208,7 +248,7 @@ setInterval(cleanup, Math.max(1000, Math.min(cfg.playerTtlMs, cfg.sessionTtlMs)/
 
 const openapi = {
   openapi:'3.1.0',
-  info:{title:'Bubble API MVP',version:'1.2.0',description:'Bedrock-first Bubble shared-state API over HTTP polling.'},
+  info:{title:'Bubble API MVP',version:'1.3.0',description:'Bedrock-first Bubble shared-state API over HTTP polling and compact numeric state.'},
   paths:{
     '/healthz':{get:{summary:'Health check'}},
     '/v1/sessions/register':{post:{summary:'Register BDS and obtain temporary token'}},
@@ -221,6 +261,7 @@ const openapi = {
     '/v1/bubbles/{bubble_id}/join':{post:{summary:'Join Bubble'}},
     '/v1/bubbles/{bubble_id}/leave':{post:{summary:'Leave Bubble'}},
     '/v1/bubbles/{bubble_id}/sync':{post:{summary:'Publish local movement and receive remote players'}},
+    '/v1/bubbles/{bubble_id}/sync-compact':{post:{summary:'Numeric Bubble Link protocol v1: {v:1,s:{i,p,r,a,f,d,q}}'}},
     '/v1/bubbles/{bubble_id}/snapshot':{get:{summary:'Admin/debug snapshot'}}
   }
 };
@@ -230,13 +271,13 @@ async function handler(req,res) {
   const path = url.pathname;
   const method = req.method || 'GET';
   try {
-    if (method==='GET' && path==='/') return json(res,200,{service:'Bubble API MVP',version:'1.2.0',protocol:'bubble/1',mode:'bedrock-first-http-polling',docs:'/docs',health:'/healthz'});
+    if (method==='GET' && path==='/') return json(res,200,{service:'Bubble API MVP',version:'1.3.0',protocol:'bubble/1',mode:'bedrock-first-http-polling',docs:'/docs',health:'/healthz'});
     if (method==='GET' && path==='/healthz') {
       cleanup();
-      return json(res,200,{ok:true,service:'bubble-api-mvp',version:'1.2.0',uptime_sec:Math.floor(process.uptime()),sessions:sessions.size,bubbles:bubbles.size,players:[...bubblePlayers.values()].reduce((n,m)=>n+m.size,0),time:new Date().toISOString()});
+      return json(res,200,{ok:true,service:'bubble-api-mvp',version:'1.3.0',uptime_sec:Math.floor(process.uptime()),sessions:sessions.size,bubbles:bubbles.size,players:[...bubblePlayers.values()].reduce((n,m)=>n+m.size,0),time:new Date().toISOString()});
     }
     if (method==='GET' && path==='/openapi.json') return json(res,200,openapi);
-    if (method==='GET' && path==='/docs') return html(res,200,`<!doctype html><html><head><meta charset="utf-8"><title>Bubble API MVP</title><style>body{font-family:system-ui;background:#111;color:#eee;max-width:900px;margin:40px auto;padding:0 20px}code,pre{background:#1d1d1d;padding:3px 6px;border-radius:6px}a{color:#ff6b6b}</style></head><body><h1>Bubble API MVP v1.2.0</h1><p>Bedrock-first shared Bubble state over HTTP polling.</p><p><a href="/openapi.json">OpenAPI JSON</a> · <a href="/healthz">Health</a></p><pre>register → list/manifest → join → sync ~${cfg.pollMs}ms → leave → close session</pre></body></html>`);
+    if (method==='GET' && path==='/docs') return html(res,200,`<!doctype html><html><head><meta charset="utf-8"><title>Bubble API MVP</title><style>body{font-family:system-ui;background:#111;color:#eee;max-width:900px;margin:40px auto;padding:0 20px}code,pre{background:#1d1d1d;padding:3px 6px;border-radius:6px}a{color:#ff6b6b}</style></head><body><h1>Bubble API MVP v1.3.0</h1><p>Bedrock-first shared Bubble state over HTTP polling (compact + legacy).</p><p><a href="/openapi.json">OpenAPI JSON</a> · <a href="/healthz">Health</a></p><pre>register → join → sync-compact ~${cfg.pollMs}ms → leave → close session</pre></body></html>`);
 
     if (method==='POST' && path==='/v1/sessions/register') {
       if (!bucketAllow(`register:${getIp(req)}`,cfg.registerRatePerMin,60000)) return fail(res,429,'RATE_LIMIT','Too many session registrations.');
@@ -291,13 +332,37 @@ async function handler(req,res) {
         const b=getBubble(decodeURIComponent(m[1]),res); if(!b)return; const removed=removeSessionPlayers(session,b.bubble_id); session.joined_bubbles.delete(b.bubble_id);
         return json(res,200,{ok:true,bubble_id:b.bubble_id,removed_players:removed.map(x=>x.player_id)});
       }
+      m=path.match(/^\/v1\/bubbles\/([^/]+)\/sync-compact$/);
+      if(method==='POST' && m) {
+        const b=getBubble(decodeURIComponent(m[1]),res);if(!b)return;
+        if(!requireJoin(session,b.bubble_id,res))return;
+        if(!bucketAllow(`sync:${session.session_id}`,cfg.syncRatePerSec,1000))return fail(res,429,'RATE_LIMIT','Sync rate exceeded.',{recommended_poll_ms:cfg.pollMs});
+        const body=await readJson(req),invalid=validateCompact(b,body);
+        if(invalid)return fail(res,400,'INVALID_COMPACT_STATE',invalid);
+        cleanup();const t=now(),s=body.s,players=storeForBubble(b.bubble_id),previous=players.get(s.i);globalTick++;
+        // O transmissor e o receptor sao duas sessoes autenticadas distintas.
+        if(previous && previous.session_id!==session.session_id) return fail(res,409,'PLAYER_OWNED','Player ID belongs to another session.');
+        const record={player_id:s.i,name:s.n||previous?.name||s.i,platform:'bedrock',
+          server_id:session.server_id,instance_id:session.instance_id,session_id:session.session_id,
+          position:s.p,rotation:{yaw:s.r[0],pitch:s.r[1]},animation:ANIMS[s.a],anim_id:s.a,
+          flags:flagsFromBits(s.f),dimension_code:s.d,sequence:s.q,
+          revision:(previous?.revision||0)+1,tick:globalTick,updated_at:t};
+        players.set(s.i,record);const r2=cfg.aoiRadiusBu*cfg.aoiRadiusBu;
+        const remotes=[...players.values()].filter(p=>p.player_id!==s.i &&
+          p.session_id!==session.session_id&&(t-p.updated_at)<=cfg.playerTtlMs &&
+          distanceSq(p.position,record.position)<=r2)
+          .sort((a,b2)=>distanceSq(a.position,record.position)-distanceSq(b2.position))
+          .slice(0,cfg.maxRemotes).map(compactRecord);
+        return json(res,200,{v:1,t, r:remotes});
+      }
       m=path.match(/^\/v1\/bubbles\/([^/]+)\/sync$/);
       if (method==='POST' && m) {
         const b=getBubble(decodeURIComponent(m[1]),res); if(!b)return; if(!requireJoin(session,b.bubble_id,res))return;
         if(!bucketAllow(`sync:${session.session_id}`,cfg.syncRatePerSec,1000)) return fail(res,429,'RATE_LIMIT','Sync rate exceeded.',{recommended_poll_ms:cfg.pollMs});
         const body=await readJson(req); const invalid=validatePlayerState(b,body); if(invalid)return fail(res,400,'INVALID_PLAYER_STATE',invalid);
         cleanup(); const t=now(),input=body.player,players=storeForBubble(b.bubble_id),previous=players.get(input.id); globalTick++;
-        const record={player_id:input.id,name:input.name||input.id,platform:'bedrock',server_id:session.server_id,instance_id:session.instance_id,session_id:session.session_id,position:input.position,rotation:{yaw:input.rotation.yaw,pitch:input.rotation.pitch},animation:input.animation||'idle',flags:{sprinting:!!input.flags?.sprinting,sneaking:!!input.flags?.sneaking,jumping:!!input.flags?.jumping,grounded:input.flags?.grounded!==false},revision:(previous?.revision||0)+1,tick:globalTick,updated_at:t};
+        if(previous && previous.session_id!==session.session_id) return fail(res,409,'PLAYER_OWNED','Player ID belongs to another session.');
+        const record={player_id:input.id,name:input.name||previous?.name||input.id,platform:'bedrock',server_id:session.server_id,instance_id:session.instance_id,session_id:session.session_id,position:input.position,rotation:{yaw:input.rotation.yaw,pitch:input.rotation.pitch},animation:input.animation||'idle',flags:{sprinting:!!input.flags?.sprinting,sneaking:!!input.flags?.sneaking,jumping:!!input.flags?.jumping,grounded:input.flags?.grounded!==false},revision:(previous?.revision||0)+1,tick:globalTick,updated_at:t};
         players.set(input.id,record); const r2=cfg.aoiRadiusBu*cfg.aoiRadiusBu;
         const remotes=[...players.values()].filter(p=>p.player_id!==input.id&&p.session_id!==session.session_id&&(t-p.updated_at)<=cfg.playerTtlMs&&distanceSq(p.position,record.position)<=r2).sort((a,b2)=>distanceSq(a.position,record.position)-distanceSq(b2.position,record.position)).slice(0,cfg.maxRemotes).map(p=>({id:p.player_id,name:p.name,platform:p.platform,server_id:p.server_id,position:p.position,rotation:p.rotation,animation:p.animation,flags:p.flags,revision:p.revision,updated_at:p.updated_at}));
         return json(res,200,{protocol:'bubble/1',bubble_id:b.bubble_id,server_time:t,tick:globalTick,self:{id:record.player_id,revision:record.revision},remotes,recommended_poll_ms:cfg.pollMs,player_ttl_ms:cfg.playerTtlMs,interpolation_hint_ms:Math.max(cfg.pollMs*2,300)});
@@ -319,6 +384,6 @@ async function handler(req,res) {
 
 const server=http.createServer(handler);
 server.listen(cfg.port,'0.0.0.0',()=>{
-  console.log(`[bubble] Bubble API MVP v1.2.0 listening on :${cfg.port}`);
+  console.log(`[bubble] Bubble API MVP v1.3.0 listening on :${cfg.port}`);
   console.log(`[bubble] configured server ids: ${Object.keys(serverKeys).join(', ') || '(none)'}`);
 });

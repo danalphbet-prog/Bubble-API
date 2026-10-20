@@ -1,6 +1,6 @@
 {
   "name": "bubble-api-mvp",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Bubble API MVP - Bedrock to Bedrock shared bubble state over HTTP polling",
   "main": "src/server.js",
