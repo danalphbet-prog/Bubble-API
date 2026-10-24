@@ -3,7 +3,7 @@ services:
     name: bubble-api-mvp
     runtime: node
     plan: free
-    buildCommand: npm run check
+    buildCommand: npm install --omit=dev && npm run check
     startCommand: npm start
     healthCheckPath: /healthz
     autoDeploy: true
@@ -32,3 +32,27 @@ services:
         sync: false
       - key: BUBBLE_ADMIN_KEY
         sync: false
+      - key: NODE_VERSION
+        value: "22.16.0"
+      - key: BUBBLE_V2_ENABLED
+        value: "true"
+      - key: FIREBASE_PROJECT_ID
+        value: "worknow-be4bd"
+      - key: FIREBASE_DATABASE_URL
+        value: "https://worknow-be4bd-default-rtdb.firebaseio.com"
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON_B64
+        sync: false
+      - key: BUBBLE_V2_PLAYER_TTL_MS
+        value: "2500"
+      - key: BUBBLE_V2_MAX_REMOTES
+        value: "8"
+      - key: BUBBLE_V2_STATE_RATE_PER_SEC
+        value: "15"
+      - key: BUBBLE_V2_BDS_CACHE_MS
+        value: "2000"
+      - key: BUBBLE_V2_BDS_MAX_AGE_MS
+        value: "90000"
+      - key: BUBBLE_V2_MANIFEST_CACHE_MS
+        value: "5000"
+      - key: BUBBLE_V2_VIEWER_TOKEN_MS
+        value: "300000"

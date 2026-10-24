@@ -3,6 +3,8 @@
 const http = require('http');
 const crypto = require('crypto');
 const { URL } = require('url');
+const {createFromEnvironment} = require('./bubble-v2');
+const bubbleV2 = createFromEnvironment();
 
 const cfg = {
   port: Number(process.env.PORT || 3000),
@@ -251,6 +253,12 @@ const openapi = {
   info:{title:'Bubble API MVP',version:'1.3.0',description:'Bedrock-first Bubble shared-state API over HTTP polling and compact numeric state.'},
   paths:{
     '/healthz':{get:{summary:'Health check'}},
+    '/v2/healthz':{get:{summary:'Firebase v2 status (no secret)'}},
+    '/v2/state/publish':{post:{summary:'Publish BDS player state; Firebase token + membership required'}},
+    '/v2/access/grant':{post:{summary:'Create short-lived read-only WebSocket token'}},
+    '/v2/instances/{instanceId}/players':{get:{summary:'Get live player states of authorized instance'}},
+    '/v2/instances/{instanceId}/members':{get:{summary:'Get Firebase membership IDs of authorized instance'}},
+    '/v2/instances/{instanceId}/manifest':{get:{summary:'Read Firebase manifest of authorized instance'}},
     '/v1/sessions/register':{post:{summary:'Register BDS and obtain temporary token'}},
     '/v1/sessions/heartbeat':{post:{summary:'Keep session alive'}},
     '/v1/sessions/{session_id}':{delete:{summary:'Close current session'}},
@@ -271,6 +279,10 @@ async function handler(req,res) {
   const path = url.pathname;
   const method = req.method || 'GET';
   try {
+    if (path.startsWith('/v2/')) {
+      if (!bubbleV2) return fail(res,503,'V2_DISABLED','Configure BUBBLE_V2_ENABLED=true no Render.');
+      if (await bubbleV2.handleHttp(req,res,url)) return;
+    }
     if (method==='GET' && path==='/') return json(res,200,{service:'Bubble API MVP',version:'1.3.0',protocol:'bubble/1',mode:'bedrock-first-http-polling',docs:'/docs',health:'/healthz'});
     if (method==='GET' && path==='/healthz') {
       cleanup();
@@ -383,6 +395,7 @@ async function handler(req,res) {
 }
 
 const server=http.createServer(handler);
+if (bubbleV2) bubbleV2.attachWebSocket(server);
 server.listen(cfg.port,'0.0.0.0',()=>{
   console.log(`[bubble] Bubble API MVP v1.3.0 listening on :${cfg.port}`);
   console.log(`[bubble] configured server ids: ${Object.keys(serverKeys).join(', ') || '(none)'}`);
