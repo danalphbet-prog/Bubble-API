@@ -270,7 +270,7 @@ function createV2({db,verifyIdToken,WebSocketServer,options={}}){
     const msg={type:'state',instanceId:p.instanceId,bdsId:p.bdsId,
       playerId:p.playerId,state:p.state,updatedAt:p.updatedAt,revision:p.revision};
     for(const ws of sockets){
-      if(ws.bubble?.instanceId!==p.instanceId || ws.bubble.uid===p.bdsId)continue;
+      if(ws.bubble?.instanceId!==p.instanceId || (ws.bubble.uid===p.bdsId && !ws.bubble.echoSelf))continue;
       const e=instances.get(p.instanceId)?.value;
       if(!membersOf(e,ws.bubble.uid).length)continue;
       sendWs(ws,msg);
@@ -292,7 +292,7 @@ function createV2({db,verifyIdToken,WebSocketServer,options={}}){
       }
     }else throw bad('AUTH_REQUIRED','Token obrigatório.',401);
     await authorize(who.uid,instanceId,true);
-    ws.bubble={...who,instanceId};
+    ws.bubble={...who,instanceId,echoSelf:who.readOnly && payload?.echoSelf === true};
     sendWs(ws,{type:'ready',instanceId,scope:who.readOnly?'instance:read':'instance:readwrite',playerTtlMs:cfg.playerTtlMs});
   }
   function attachWebSocket(server){
