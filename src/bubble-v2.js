@@ -20,7 +20,9 @@ function numberEnv(name, fallback, min, max) {
 }
 function createFromEnvironment() {
   if (process.env.BUBBLE_V2_ENABLED !== 'true') return null;
-  const admin = require('firebase-admin');
+  const { cert, applicationDefault, initializeApp, getApps } = require('firebase-admin/app');
+  const { getDatabase } = require('firebase-admin/database');
+  const { getAuth } = require('firebase-admin/auth');
   const {WebSocketServer} = require('ws');
   const databaseURL = process.env.FIREBASE_DATABASE_URL || 'https://worknow-be4bd-default-rtdb.firebaseio.com';
   const projectId = process.env.FIREBASE_PROJECT_ID || 'worknow-be4bd';
@@ -34,16 +36,16 @@ function createFromEnvironment() {
     catch { throw new Error('Credencial inválida: FIREBASE_SERVICE_ACCOUNT_JSON_B64 não contém JSON válido.'); }
     if (!parsed.private_key || !parsed.client_email) throw new Error('Service Account Firebase incompleta.');
     if(parsed.project_id !== projectId) throw new Error('Service Account pertence a outro projeto Firebase.');
-    credential=admin.credential.cert(parsed);
+    credential=cert(parsed);
   } else {
     // Local development / workload identity only. Render typically needs the service account.
-    credential=admin.credential.applicationDefault();
+    credential=applicationDefault();
   }
   const name='bubble-v2';
-  const app=admin.apps.find(x=>x.name===name) || admin.initializeApp({credential,databaseURL,projectId},name);
+  const app=getApps().find(x=>x.name===name) || initializeApp({credential,databaseURL,projectId},name);
   return createV2({
-    db:admin.database(app),
-    verifyIdToken:token=>admin.auth(app).verifyIdToken(token),
+    db:getDatabase(app),
+    verifyIdToken:token=>getAuth(app).verifyIdToken(token),
     WebSocketServer,
     options:{
       playerTtlMs:numberEnv('BUBBLE_V2_PLAYER_TTL_MS',2500,300,120000),
