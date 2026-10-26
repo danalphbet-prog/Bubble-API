@@ -2,3 +2,14 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# Bubble Beta
+node_modules/
+.env
+.env.*
+*.pem
+*.key
+*serviceAccount*.json
+firebase-adminsdk*.json
+.bubble-beta-backup*/
+.DS_Store

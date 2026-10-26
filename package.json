@@ -1,21 +1,16 @@
 {
-  "name": "bubble-api-mvp",
-  "version": "1.4.0",
+  "name": "bubble-api-beta",
+  "version": "0.1.0-beta",
   "private": true,
-  "description": "Bubble API MVP - Bedrock to Bedrock shared bubble state over HTTP polling",
+  "description": "Bubble Beta: raw player state relay without authentication; mirroring belongs to Minecraft addons",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
-    "check": "node --check src/server.js && node --check src/bubble-v2.js && node --check src/bubble-v2-core.js && node --test test/v2.test.js",
-    "test": "node --test test/v2.test.js"
+    "check": "node --check src/server.js && node --check src/beta-core.js && node --test test/*.test.js",
+    "test": "node --test test/*.test.js",
+    "dev": "node --watch src/server.js"
   },
-  "engines": {
-    "node": ">=22"
-  },
-  "dependencies": {
-    "firebase-admin": "^14.5.0",
-    "ws": "^8.22.0"
-  }
+  "engines": {"node": ">=22"},
+  "dependencies": {"ws": "^8.18.3"}
 }
